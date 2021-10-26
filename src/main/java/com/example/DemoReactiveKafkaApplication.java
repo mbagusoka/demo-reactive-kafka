@@ -10,6 +10,7 @@ import static org.apache.kafka.clients.producer.ProducerConfig.BOOTSTRAP_SERVERS
 import static org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +20,7 @@ import javax.annotation.PreDestroy;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.CommandLineRunner;
@@ -28,8 +30,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
 
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
@@ -54,29 +60,65 @@ public class DemoReactiveKafkaApplication {
 
 }
 
+@RestController
+@RequiredArgsConstructor
+class DummyController {
+
+    private final MessageProducer producer;
+
+    @GetMapping("/fill/{count}")
+    public Flux<String> fillMessage(@PathVariable int count) {
+        return producer.produce(count).map(RecordMetadata::toString);
+    }
+
+    @GetMapping(value = "/fill/sse/{count}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<String> fillMessageSse(@PathVariable int count) {
+        return producer.produce(count)
+            .map(RecordMetadata::toString)
+            .delayElements(Duration.ofSeconds(1));
+    }
+}
+
 @Component
 @RequiredArgsConstructor
 @Slf4j
 class Initializer implements CommandLineRunner {
 
+    private final MessageProducer producer;
+
+    @Override
+    public void run(String... args) {
+        producer.produce(10).subscribe();
+    }
+}
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+class MessageProducer {
+
     private final KafkaSender<String, String> sender;
 
     private final KafkaProperties properties;
 
-    @Override
-    public void run(String... args) {
+    public Flux<RecordMetadata> produce(int count) {
         String topic = properties.getTopics().get(0);
-        Flux<SenderRecord<String, String, String>> recordFlux = Flux.range(1, 10)
+        Flux<SenderRecord<String, String, String>> recordFlux = getRecordFlux(count, topic);
+
+        return sender.send(recordFlux)
+            .map(SenderResult::recordMetadata)
+            .doOnError(e -> log.error("Send failed", e));
+    }
+
+    private Flux<SenderRecord<String, String, String>> getRecordFlux(
+        int count, String topic
+    ) {
+        return Flux.range(1, count)
             .map(String::valueOf)
             .<SenderRecord<String, String, String>>map(i -> SenderRecord.create(
                 new ProducerRecord<>(topic, UUID.randomUUID().toString()), i
             ))
             .doOnNext(rec -> log.info("Produced message {}", rec.value()));
-
-        sender.send(recordFlux)
-            .map(SenderResult::recordMetadata)
-            .doOnError(e -> log.error("Send failed", e))
-            .subscribe();
     }
 }
 
