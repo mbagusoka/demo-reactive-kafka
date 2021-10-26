@@ -68,12 +68,11 @@ class Initializer implements CommandLineRunner {
         String topic = properties.getTopics().get(0);
         Flux<SenderRecord<String, String, String>> recordFlux = Flux.range(1, 10)
             .map(String::valueOf)
-            .map(i -> {
-                String message = UUID.randomUUID().toString();
-                log.info("Produced message {}", message);
+            .<SenderRecord<String, String, String>>map(i -> SenderRecord.create(
+                new ProducerRecord<>(topic, UUID.randomUUID().toString()), i
+            ))
+            .doOnNext(rec -> log.info("Produced message {}", rec.value()));
 
-                return SenderRecord.create(new ProducerRecord<>(topic, message), i);
-            });
         sender.send(recordFlux)
             .map(SenderResult::recordMetadata)
             .doOnError(e -> log.error("Send failed", e))
