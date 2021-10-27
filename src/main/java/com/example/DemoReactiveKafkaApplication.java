@@ -42,6 +42,7 @@ import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.kafka.receiver.KafkaReceiver;
 import reactor.kafka.receiver.ReceiverOptions;
 import reactor.kafka.receiver.ReceiverRecord;
@@ -77,6 +78,13 @@ class DummyController {
             .map(RecordMetadata::toString)
             .delayElements(Duration.ofSeconds(1));
     }
+
+    @GetMapping(value = "fill/token/{token}")
+    public Mono<String> fillToken(@PathVariable String token) {
+        return Mono.just(token)
+            .flatMap(producer::produce)
+            .map(rec -> token);
+    }
 }
 
 @Component
@@ -108,6 +116,19 @@ class MessageProducer {
         return sender.send(recordFlux)
             .map(SenderResult::recordMetadata)
             .doOnError(e -> log.error("Send failed", e));
+    }
+
+    public Mono<RecordMetadata> produce(String token) {
+        String topic = properties.getTopics().get(0);
+        Mono<SenderRecord<String, String, String>> recordMono =
+            Mono.just(SenderRecord.create(
+                new ProducerRecord<>(topic, token),
+                UUID.randomUUID().toString()
+            ));
+
+        return sender.send(recordMono)
+            .map(SenderResult::recordMetadata)
+            .single();
     }
 
     private Flux<SenderRecord<String, String, String>> getRecordFlux(
