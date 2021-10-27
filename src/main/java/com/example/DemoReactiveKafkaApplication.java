@@ -82,8 +82,7 @@ class DummyController {
     @GetMapping(value = "fill/token/{token}")
     public Mono<String> fillToken(@PathVariable String token) {
         return Mono.just(token)
-            .flatMap(producer::produce)
-            .map(rec -> token);
+            .flatMap(producer::produce);
     }
 }
 
@@ -118,7 +117,7 @@ class MessageProducer {
             .doOnError(e -> log.error("Send failed", e));
     }
 
-    public Mono<RecordMetadata> produce(String token) {
+    public Mono<String> produce(String token) {
         String topic = properties.getTopics().get(0);
         Mono<SenderRecord<String, String, String>> recordMono =
             Mono.just(SenderRecord.create(
@@ -127,7 +126,7 @@ class MessageProducer {
             ));
 
         return sender.send(recordMono)
-            .map(SenderResult::recordMetadata)
+            .map(SenderResult::correlationMetadata)
             .single();
     }
 
