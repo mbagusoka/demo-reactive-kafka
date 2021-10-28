@@ -50,6 +50,8 @@ import reactor.kafka.sender.KafkaSender;
 import reactor.kafka.sender.SenderOptions;
 import reactor.kafka.sender.SenderRecord;
 import reactor.kafka.sender.SenderResult;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuples;
 
 @SpringBootApplication
 @ConfigurationPropertiesScan
@@ -82,7 +84,8 @@ class DummyController {
     @GetMapping(value = "fill/token/{token}")
     public Mono<String> fillToken(@PathVariable String token) {
         return Mono.just(token)
-            .flatMap(producer::produce);
+            .zipWhen(producer::produce)
+            .map(Tuple2::getT1);
     }
 }
 
